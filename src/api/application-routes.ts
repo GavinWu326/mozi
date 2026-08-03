@@ -975,6 +975,34 @@ function ensureRawConfigRecord(parent: RawConfigRecord, key: string): RawConfigR
   return next;
 }
 
+type ProviderOverrideMap = Record<string, { apikey?: string; baseurl?: string; apiversion?: string }>;
+
+/**
+ * Normalize provider override keys the way ProviderOverrideSchema does.
+ *
+ * `raw.providers` is read straight off the config file, where the keys are
+ * written as `base_url` / `api_key`. The lowercase, underscore-free form the
+ * resolvers look up (`baseurl`, `apikey`) is produced by ProviderOverrideSchema's
+ * z.preprocess, which only runs when the config is parsed. Casting the raw map to
+ * the normalized shape type-checks but reads `undefined` at runtime, so every
+ * `providers.<id>.base_url` / `.api_key` override was silently ignored on these
+ * paths — provider health checks and model discovery went to the registry
+ * default endpoint while brain calls used the override.
+ */
+function normalizeRawProviderOverrides(value: unknown): ProviderOverrideMap | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const normalized: Record<string, Record<string, unknown>> = {};
+  for (const [providerId, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const fields: Record<string, unknown> = {};
+    for (const [key, fieldValue] of Object.entries(entry as Record<string, unknown>)) {
+      fields[key.toLowerCase().replace(/_/g, '')] = fieldValue;
+    }
+    normalized[providerId] = fields;
+  }
+  return normalized as ProviderOverrideMap;
+}
+
 function providerHasConfiguredKey(
   providerId: string,
   rawProviders: Record<string, { apikey?: string; baseurl?: string; apiversion?: string }> | undefined,
@@ -1222,7 +1250,7 @@ function validateRequestedModelAllowed(ctx: ApiTenantContext, modelId: string): 
 function getModelRolesForTenant(tenantId: string): { brain: ModelRoleSlot; light: ModelRoleSlot; step: ModelRoleSlot; plan_summary: ModelRoleSlot; embedding: ModelRoleSlot } {
   const raw = readConfigWithLegacyFallback(getConfigPath()).config;
   const config = loadConfig(getConfigPath());
-  const rawProviders = raw.providers as Record<string, { apikey?: string; baseurl?: string; apiversion?: string }> | undefined;
+  const rawProviders = normalizeRawProviderOverrides(raw.providers);
   const storedKeyProviders = new Set(listTenantApiKeys(tenantId).map((entry) => entry.provider));
   const readyCliProviders = detectReadyCliProviderIds();
 
@@ -4434,7 +4462,7 @@ export async function registerApiRoutes(
     const allowedModels = ctx ? resolveAllowedModels(ctx.tenant_id, ctx.user_id).models : null;
     const storedKeys = new Set(listTenantApiKeys(tenantId).map((entry) => entry.provider));
     const raw = readConfigWithLegacyFallback(getConfigPath()).config;
-    const rawProviders = raw.providers as Record<string, { apikey?: string; baseurl?: string; apiversion?: string }> | undefined;
+    const rawProviders = normalizeRawProviderOverrides(raw.providers);
     const manualModels = ((raw.model_discovery as Record<string, unknown> | undefined)?.manual_models ?? {}) as Record<string, string[]>;
     const persistedModels = ((raw.model_discovery as Record<string, unknown> | undefined)?.models ?? {}) as Record<string, string[]>;
     const persistedFetchedAt = ((raw.model_discovery as Record<string, unknown> | undefined)?.fetched_at ?? {}) as Record<string, string>;
@@ -4671,7 +4699,7 @@ export async function registerApiRoutes(
       return reply.code(404).send({ success: false, reason: 'live_discovery_unsupported', error: 'Provider does not expose live model discovery' });
     }
     const raw = readConfigWithLegacyFallback(getConfigPath()).config;
-    const rawProviders = raw.providers as Record<string, { apikey?: string; baseurl?: string; apiversion?: string }> | undefined;
+    const rawProviders = normalizeRawProviderOverrides(raw.providers);
     const masterSecret = resolveTenantMasterSecret();
     const apiKey = resolveRuntimeApiKey(id, {
       configProviders: rawProviders,
@@ -4766,7 +4794,7 @@ export async function registerApiRoutes(
     if (!provider) return reply.code(400).send({ ok: false, error: 'Unknown provider' });
 
     const raw = readConfigWithLegacyFallback(getConfigPath()).config;
-    const rawProviders = raw.providers as Record<string, { apikey?: string; baseurl?: string; apiversion?: string }> | undefined;
+    const rawProviders = normalizeRawProviderOverrides(raw.providers);
     const masterSecret = resolveTenantMasterSecret();
     const apiKey = resolveRuntimeApiKey(id, {
       configProviders: rawProviders,
