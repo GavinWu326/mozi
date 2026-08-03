@@ -9,6 +9,17 @@ ENV MOZI_RELEASE_CHANNEL=${MOZI_RELEASE_CHANNEL}
 
 WORKDIR /app
 
+# Optional extra root CAs. The container does not inherit the host trust store,
+# so behind a TLS-intercepting proxy every HTTPS fetch here fails with
+# UNABLE_TO_GET_ISSUER_CERT_LOCALLY. node:22-slim ships no ca-certificates
+# package (no update-ca-certificates, no /etc/ssl/certs bundle), so point
+# NODE_EXTRA_CA_CERTS at a PEM instead — Node merges it with its built-in roots.
+# Drop certificates into docker-ca/; an empty directory is a no-op.
+COPY docker-ca/ /usr/local/share/extra-ca/
+RUN cat /usr/local/share/extra-ca/*.pem /usr/local/share/extra-ca/*.crt \
+      > /usr/local/share/extra-ca/bundle.pem 2>/dev/null || true
+ENV NODE_EXTRA_CA_CERTS=/usr/local/share/extra-ca/bundle.pem
+
 RUN corepack enable && corepack prepare pnpm@10.29.2 --activate
 
 # Copy entire workspace before install — pnpm needs pnpm-workspace.yaml +
@@ -34,6 +45,14 @@ LABEL org.opencontainers.image.version=${MOZI_BUILD_VERSION} \
 
 WORKDIR /app
 
+# Same optional extra root CAs as the builder stage. pip talks HTTPS to PyPI via
+# OpenSSL rather than Node, so it needs the system bundle (built in the apt layer
+# below) rather than NODE_EXTRA_CA_CERTS. Debian apt sources are plain http, so
+# apt itself needs no trust fix.
+COPY docker-ca/ /usr/local/share/extra-ca/
+ENV NODE_EXTRA_CA_CERTS=/usr/local/share/extra-ca/bundle.pem
+ENV PIP_CERT=/etc/ssl/certs/ca-certificates.crt
+
 COPY requirements/document-runtime.txt ./requirements/document-runtime.txt
 COPY requirements/document-runtime-constraints.txt ./requirements/document-runtime-constraints.txt
 
@@ -42,9 +61,16 @@ COPY requirements/document-runtime-constraints.txt ./requirements/document-runti
 # Install them at build time so the skills are Ready offline instead of
 # surfacing "Needs setup" in the enterprise container.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 python3-pip git poppler-utils \
+  && apt-get install -y --no-install-recommends ca-certificates python3 python3-pip git poppler-utils \
     libreoffice-impress libreoffice-writer libreoffice-calc libreoffice-core fonts-noto-cjk \
-  && rm -rf /var/lib/apt/lists/*
+  && rm -rf /var/lib/apt/lists/* \
+  && for cert in /usr/local/share/extra-ca/*.pem /usr/local/share/extra-ca/*.crt; do \
+       [ -f "$cert" ] || continue; \
+       cp "$cert" "/usr/local/share/ca-certificates/$(basename "${cert%.*}").crt"; \
+     done \
+  && cat /usr/local/share/extra-ca/*.pem /usr/local/share/extra-ca/*.crt \
+       > /usr/local/share/extra-ca/bundle.pem 2>/dev/null || true \
+  && update-ca-certificates
 
 # Kept in its own layer, and retried: pip treats an HTTP error from the package
 # host as fatal (--retries only covers connection-level errors), so a single

@@ -30,3 +30,7 @@ spikes/sandbox-b0/*.log
 
 # 架构全景生成器的 Python 缓存
 docs/atlas/__pycache__/
+
+# Extra root CAs for the container build — keep certificates out of git
+docker-ca/*.pem
+docker-ca/*.crt
