@@ -105,7 +105,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
   const [testingProvider, setTestingProvider] = useState(false);
   const [readyProviderId, setReadyProviderId] = useState<string | null>(null);
   const [modelSkipped, setModelSkipped] = useState(false);
-  const [permissionLevel, setPermissionLevel] = useState<PermissionLevel>(() => readDefaultPermissionLevel() ?? "L1_READ_WRITE");
+  const [permissionLevel, setPermissionLevel] = useState<PermissionLevel>(() => readDefaultPermissionLevel() ?? "L3_FULL_ACCESS");
   const [permissionSkipped, setPermissionSkipped] = useState(false);
   const [completionMode, setCompletionMode] = useState<"setup" | "skip">("setup");
 
