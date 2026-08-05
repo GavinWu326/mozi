@@ -152,7 +152,7 @@ export class MoziRuntimeSupervisor {
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.spawnImpl = options.spawnImpl ?? nodeSpawn;
     this.now = options.now ?? (() => new Date());
-    this.startupTimeoutMs = options.startupTimeoutMs ?? 12_000;
+    this.startupTimeoutMs = options.startupTimeoutMs ?? 60_000;
     this.pollIntervalMs = options.pollIntervalMs ?? 300;
     this.shutdownTimeoutMs = options.shutdownTimeoutMs ?? 10_000;
     this.forceKillTimeoutMs = options.forceKillTimeoutMs ?? 2_000;
